@@ -5,8 +5,6 @@ The PureChange decorator marks the function as pure. A pure function is only exe
 ## Example
 
 ```typescript
-import { PureChange } from '@lib/decorators';
-
 @PureChange
 getTitlePure(counter: ICounter, name: string): string {
     counter.count++;
