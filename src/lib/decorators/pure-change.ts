@@ -3,57 +3,105 @@
  * a pure change to the input value. A pure change is either a change to a primitive
  * input value (String, Number, Boolean, Symbol) or a changed object reference (Date, Array, Function, Object).
  */
- export function PureChange<T>(
-    target: Object,
-    propertyKey: string,
-    { enumerable, value, get }: TypedPropertyDescriptor<T>
-): TypedPropertyDescriptor<T> {
-    if (typeof(value) !== 'function') {
-        throw new Error(
-            `[PureChange] Decorator can not be applied because the "${propertyKey}" is not a function or getter.`
-        );
-    }
+ export function PureChange() {
+    let counter = 0;
 
-    if (get) {
-        return {
-            enumerable,
-            get(): T {
-                const value = get.call(this);
+    const stringifyReplacer = (key: any, value: any) => {
+        if (typeof value === 'function') {
+            return value.name;
+        }
 
-                Object.defineProperty(this, propertyKey, { value, enumerable });
+        return value;
+    };
 
-                return value;
-            },
-        };
-    }
+    const patched = (original: () => void) => {
+        const identifier = ++counter;
+        // The function returned here gets called instead of original method.
+        return function (...args: any[]) {
+            const propValName = `__pureChangeValue_${identifier}__`;
+            const propMapName = `__pureChangeMap_${identifier}__`;
 
-    const original = value;
+            let returnedValue: any;
 
-    return {
-        enumerable,
-        get(): T {
-            let prevResult: T;
-            let prevArgs: ReadonlyArray<any> = [];
+            if (!args.length) {
+                if (this.hasOwnProperty(propValName)) {
+                    returnedValue = this[propValName];
+                } else {
+                    returnedValue = original.apply(this, args);
+                    Object.defineProperty(this, propValName, {
+                        configurable: false,
+                        enumerable: false,
+                        writable: false,
+                        value: returnedValue,
+                    });
+                }
+            }
 
-            const result = (...args: any[]) => {
-                if (
-                    prevArgs.length === args.length &&
-                    args.every((arg, i) => arg === prevArgs[i])
-                ) {
-                    return prevResult;
+            if (args.length > 0) {
+                // Get or create map
+                if (!this.hasOwnProperty(propMapName)) {
+                    Object.defineProperty(this, propMapName, {
+                        configurable: false,
+                        enumerable: false,
+                        writable: false,
+                        value: new Map<any, any>(),
+                    });
+                }
+                const hashMap: Map<any, any> = this[propMapName];
+                const hashKey = args;
+                let has = false;
+
+                for (const [key, value] of hashMap.entries()) {
+                    if (key.length === args.length && args.every((arg, i) => arg === key[i])) {
+                        returnedValue = value;
+                        has = true;
+                        break;
+                    }
                 }
 
-                prevResult = original.apply(this, args);
-                prevArgs = args;
+                if (!has) {
+                    returnedValue = original.apply(this, args);
+                    hashMap.set(hashKey, returnedValue);
+                }
 
-                return prevResult;
-            };
+                // VERSION 2
+                // hashMap.forEach((value: any, key: any[]) => {
+                //     if (
+                //         key.length === args.length &&
+                //         args.every((arg, i) => arg === key[i]) &&
+                //         !has
+                //     ) {
+                //         returnedValue = value;
+                //         has = true;
+                //         return;
+                //     }
+                // });
 
-            Object.defineProperty(this, propertyKey, {
-                value: result,
-            });
+                // VERSION 1
+                // const hashKey =
+                //     args.length > 1 ? btoa(JSON.stringify(args, stringifyReplacer)) : args[0];
 
-            return result as any;
-        },
+                // if (hashMap.has(hashKey)) {
+                //     returnedValue = hashMap.get(hashKey);
+                // } else {
+                //     returnedValue = original.apply(this, args);
+                //     hashMap.set(hashKey, returnedValue);
+                // }
+            }
+
+            return returnedValue;
+        };
+    };
+
+    return (target: Object, propertyKey: string, descriptor: TypedPropertyDescriptor<any>) => {
+        if (descriptor.value != null) {
+            descriptor.value = patched(descriptor.value);
+        } else if (descriptor.get != null) {
+            descriptor.get = patched(descriptor.get);
+        } else {
+            throw new Error(
+                '[PureChange] Decorator can not be applied because the "${propertyKey}" is not a method or get accessor',
+            );
+        }
     };
 }

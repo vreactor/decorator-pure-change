@@ -30,7 +30,7 @@ export class HeaderComponent {
         return `[${name}] Called ${counter.count} time(s)`;
     }
 
-    @PureChange
+    @PureChange()
     getTitlePure(counter: ICounter, name: string): string {
         counter.count++;
 
